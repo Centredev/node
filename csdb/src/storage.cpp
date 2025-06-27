@@ -21,6 +21,9 @@
 #include <csdb/address.hpp>
 #include <csdb/database.hpp>
 #include <csdb/database_berkeleydb.hpp>
+#ifdef ROCKSDB_AVAILABLE
+#include <csdb/database_rocksdb.hpp>
+#endif
 #include <csdb/internal/shared_data_ptr_implementation.hpp>
 #include <csdb/internal/utils.hpp>
 #include <csdb/pool.hpp>

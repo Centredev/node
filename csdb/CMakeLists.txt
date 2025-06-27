@@ -82,6 +82,15 @@ target_link_libraries(
   lz4
   lib
 )
+
+# Add RocksDB support if available
+if(TARGET rocksdb)
+  target_sources(${PROJECT_NAME} PRIVATE 
+    src/database_rocksdb.cpp
+    include/csdb/database_rocksdb.hpp)
+  target_link_libraries(${PROJECT_NAME} rocksdb)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE ROCKSDB_AVAILABLE)
+endif()
 if (CSDB_PLATFORM_IS_BIG_ENDIAN)
   target_compile_definitions(${PROJECT_NAME} PUBLIC -DCSDB_PLATFORM_IS_BIG_ENDIAN)
 else()

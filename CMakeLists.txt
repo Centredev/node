@@ -1,245 +1,35 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.10)
 
-project(node)
+# default /W3 or /W4 for msvc at googletest
+add_subdirectory(googletest)
+add_subdirectory(thrift)
 
-if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third-party/berkeleydb/.git OR
-        NOT EXISTS ${CMAKE_SOURCE_DIR}/third-party/googletest/.git OR
-        NOT EXISTS ${CMAKE_SOURCE_DIR}/third-party/thrift/.git OR
-        NOT EXISTS ${CMAKE_SOURCE_DIR}/third-party/thrift-interface-definitions/.git)
-    message(FATAL_ERROR "Git submodules not initialized, execute:\n  git submodule update --init")
+configure_third_party_compiler_flags()
+
+add_subdirectory(berkeleydb)
+
+# RocksDB configuration
+set(WITH_TESTS OFF CACHE BOOL "Build RocksDB with tests")
+set(WITH_TOOLS OFF CACHE BOOL "Build RocksDB with tools")
+set(WITH_BENCHMARK_TOOLS OFF CACHE BOOL "Build RocksDB with benchmark tools")
+set(WITH_CORE_TOOLS OFF CACHE BOOL "Build RocksDB with core tools")
+set(WITH_GFLAGS OFF CACHE BOOL "Build RocksDB with gflags")
+set(FAIL_ON_WARNINGS OFF CACHE BOOL "RocksDB fail on warnings")
+set(PORTABLE ON CACHE BOOL "Build portable RocksDB binary")
+set(ROCKSDB_BUILD_SHARED OFF CACHE BOOL "Build RocksDB shared library")
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/CMakeLists.txt)
+    add_subdirectory(rocksdb)
 endif()
 
-if (MSVC)
-    add_definitions(-DNOMINMAX)
-    add_definitions(-D_WIN32_WINNT=0x0601)
-    add_definitions(-D_SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING)
-    add_definitions(-D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING)
-    add_definitions(-D_ENABLE_EXTENDED_ALIGNED_STORAGE)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions(-D_WINSOCK_DEPRECATED_NO_WARNINGS)
-endif()
+add_subdirectory(lz4)
+add_subdirectory(rang)
+add_subdirectory(nameof)
 
-option(LEVELDB_BUILD_TESTS "" OFF)
-option(LEVELDB_AUTORUN_TESTS "" OFF)
-option(DBSQL "Enable PostgeSQL server connection" OFF)
+# Header-only libraries
+add_library(websocketpp INTERFACE)
+target_include_directories(websocketpp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/websocketpp)
+add_library(websocketpp::websocketpp ALIAS websocketpp)
 
-IF(DBSQL)
-    ADD_DEFINITIONS(-DDBSQL)
-ENDIF(DBSQL)
-
-if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-endif()
-
-if (MSVC)
-  if(CMAKE_CONFIGURATION_TYPES)
-    list(APPEND CMAKE_CONFIGURATION_TYPES RelMonitor RelWallet)
-  endif()
-
-  set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Ob0 /Od /RTC1 /MTd /MP") # default CMAKE_CXX_FLAGS_DEBUG but /MDd -> /MTd
-  set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Ob2 /DNDEBUG /MT /MP") # default CMAKE_CXX_FLAGS_RELEASE but /MD -> /MT
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/Zi /O2 /Ob1 /DNDEBUG /MT /MP") # default CMAKE_CXX_FLAGS_RELWITHVEBINFO but /MD -> /MT + /MP
-  set(CMAKE_CXX_FLAGS_RELMONITOR "${CMAKE_CXX_FLAGS_RELMONITOR} ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DMONITOR_NODE")
-  set(CMAKE_CXX_FLAGS_RELWALLET "${CMAKE_CXX_FLAGS_RELWALLET} ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DWEB_WALLET_NODE")
-  set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /MT /MP") # default CMAKE_CXX_FLAGS_MINSIZEREL but /MD -> /MT
-
-  set(CMAKE_C_FLAGS_RELMONITOR ${CMAKE_C_FLAGS_RELEASE})
-  set(CMAKE_C_FLAGS_RELWALLET ${CMAKE_C_FLAGS_RELEASE})
-  
-  if(NOT DEFINED OUTDIR)
-    set(RELMONITOR_OUTDIR "RelMonitor/")
-    set(RELWALLET_OUTDIR "RelWallet/")
-  else()
-    set(RELMONITOR_OUTDIR ${OUTDIR})
-    set(RELWALLET_OUTDIR ${OUTDIR})
-  endif()
-
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO /LTCG")
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /INCREMENTAL:NO /LTCG")
-  set(CMAKE_SHARED_LINKER_FLAGS_RELMONITOR "${CMAKE_SHARED_LINKER_FLAGS}")
-  set(CMAKE_SHARED_LINKER_FLAGS_RELWALLET "${CMAKE_SHARED_LINKER_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS_RELMONITOR "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} /OUT:${RELMONITOR_OUTDIR}node_monitor.exe /PDB:${RELMONITOR_OUTDIR}node_monitor.pdb")
-  set(CMAKE_EXE_LINKER_FLAGS_RELWALLET "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} /OUT:${RELWALLET_OUTDIR}node_wallet.exe /PDB:${RELWALLET_OUTDIR}node_wallet.pdb")
-
-  message(STATUS "CMAKE_CXX_FLAGS_DEBUG = ${CMAKE_CXX_FLAGS_DEBUG}")
-  message(STATUS "CMAKE_CXX_FLAGS_RELEASE = ${CMAKE_CXX_FLAGS_RELEASE}")
-  message(STATUS "CMAKE_CXX_FLAGS_RELWITHDEBINFO = ${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
-  message(STATUS "CMAKE_CXX_FLAGS_RELMONITOR = ${CMAKE_CXX_FLAGS_RELMONITOR}")
-  message(STATUS "CMAKE_CXX_FLAGS_RELWALLET = ${CMAKE_CXX_FLAGS_RELWALLET}")
-
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /ignore:4075")
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /ignore:4075")
-  set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /ignore:4075")
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unknown-pragmas -pedantic")
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
-  if(CMAKE_BUILD_TYPE EQUAL Release)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
-  endif()
-
-  message(STATUS "CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
-  message(STATUS "CMAKE_CXX_FLAGS_DEBUG = ${CMAKE_CXX_FLAGS_DEBUG}")
-  message(STATUS "CMAKE_CXX_FLAGS_RELEASE = ${CMAKE_CXX_FLAGS_RELEASE}")
-endif()
-
-# This large list is necessary to prevent thrift from generating unused stuff
-add_definitions(-DUSE_STD_THREAD)
-
-if (MSVC)
-    MARK_AS_ADVANCED(
-        CMAKE_CXX_FLAGS_RELMONITOR
-        CMAKE_C_FLAGS_RELMONITOR
-        CMAKE_EXE_LINKER_FLAGS_RELMONITOR
-        CMAKE_CXX_FLAGS_RELWALLET
-        CMAKE_C_FLAGS_RELWALLET
-        CMAKE_EXE_LINKER_FLAGS_RELWALLET
-        )
-
-    option(BUILD_COMPILER "" OFF)
-endif(MSVC)
-
-option(ENABLE_TESTS "Enable tests" OFF)
-option(SKIP_SAMPLES "Skip samples" ON)
-option(WITH_BOOST_STATIC "" ON)
-option(BUILD_TESTING "" OFF)
-option(BUILD_TUTORIALS "" OFF)
-option(BUILD_EXAMPLES "" OFF)
-option(BUILD_PYTHON "" OFF)
-option(WITH_SHARED_LIB "" OFF)
-option(WITH_STATIC_LIB "" ON)
-option(WITH_C_GLIB "" OFF)
-option(WITH_JAVA "" OFF)
-option(WITH_PYTHON "" OFF)
-option(WITH_QT4 "" OFF)
-option(WITH_QT5 "" OFF)
-option(WITH_ZLIB "" OFF)
-option(WITH_STDTHREADS "" ON)
-option(WITH_LIBEVENT "" OFF)
-option(WITH_OPENSSL "" OFF)
-option(WITH_GPROF "" OFF)
-
-if (NOT MSVC AND WITH_GPROF)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -pg")
-endif()
-
-macro(configure_msvc_runtime)
-    if (MSVC)
-        # Default to statically-linked runtime.
-        if ("${MSVC_RUNTIME}" STREQUAL "")
-            set(MSVC_RUNTIME "static")
-        endif()
-        # Set compiler options.
-        set(variables
-            CMAKE_C_FLAGS_DEBUG
-            CMAKE_C_FLAGS_MINSIZEREL
-            CMAKE_C_FLAGS_RELEASE
-            CMAKE_C_FLAGS_RELWITHDEBINFO
-            CMAKE_C_FLAGS_RELMONITOR
-            CMAKE_C_FLAGS_RELWALLET
-            CMAKE_CXX_FLAGS_DEBUG
-            CMAKE_CXX_FLAGS_MINSIZEREL
-            CMAKE_CXX_FLAGS_RELEASE
-            CMAKE_CXX_FLAGS_RELMONITOR
-            CMAKE_CXX_FLAGS_RELWALLET
-            CMAKE_CXX_FLAGS_RELWITHDEBINFO
-            )
-        if (${MSVC_RUNTIME} STREQUAL "static")
-            message(STATUS
-                "MSVC -> forcing use of statically-linked runtime."
-                )
-            foreach (variable ${variables})
-                if (${variable} MATCHES "/MD")
-                    string(REGEX REPLACE "/MD" "/MT" ${variable} "${${variable}}")
-                endif ()
-            endforeach()
-        else()
-            message(STATUS
-                "MSVC -> forcing use of dynamically-linked runtime."
-                )
-            foreach (variable ${variables})
-                if (${variable} MATCHES "/MT")
-                    string(REGEX REPLACE "/MT" "/MD" ${variable} "${${variable}}")
-                endif()
-            endforeach()
-        endif()
-    endif()
-endmacro()
-
-macro(suppress_boost_cmake_warnings)
-    cmake_policy(SET CMP0074 NEW)
-endmacro()
-
-macro(configure_msvc_flags)
-    if (MSVC)
-        if ("${CMAKE_CXX_FLAGS}" MATCHES "([/-]W[0-3])")
-            message("Other Flags /W detected, replace it to avoid compiler warning to /W4")
-            string(REGEX REPLACE "([/-]W[0-3])" "/W4" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-        else()
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
-        endif()
-    endif()
-endmacro()
-
-macro(match_and_replace type from to)
-    if ("${${type}}" MATCHES ${from})
-        string(REGEX REPLACE ${from} ${to} ${type} ${${type}})
-    endif()
-endmacro()
-
-macro(configure_msvc_no_optimization)
-    if (MSVC)
-        match_and_replace(CMAKE_CXX_FLAGS_RELWITHDEBINFO "([/-]O[1-2])" "/Od")
-        match_and_replace(CMAKE_CXX_FLAGS_RELSPAM "([/-]O[1-2])" "/Od")
-        match_and_replace(CMAKE_CXX_FLAGS_RELMONITOR "([/-]O[1-2])" "/Od")
-        match_and_replace(CMAKE_CXX_FLAGS_RELWALLET "([/-]O[1-2])" "/Od")
-
-        match_and_replace(CMAKE_CXX_FLAGS_RELWITHDEBINFO "([/-]Ob1)" "/Ob0")
-        match_and_replace(CMAKE_CXX_FLAGS_RELSPAM "([/-]Ob1)" "/Ob0")
-        match_and_replace(CMAKE_CXX_FLAGS_RELMONITOR "([/-]Ob1)" "/Ob0")
-        match_and_replace(CMAKE_CXX_FLAGS_RELWALLET "([/-]Ob1)" "/Ob0")
-    endif()
-endmacro()
-
-macro(configure_third_party_compiler_flags)
-    if (MSVC)
-        if ("${CMAKE_CXX_FLAGS}" MATCHES "([/-]W[1-4])")
-            message("Other Flags /W detected, replace it to suppress third party warnings")
-            match_and_replace(CMAKE_CXX_FLAGS "([/-]W[0-4])" "/W0")
-            match_and_replace(CMAKE_C_FLAGS "([/-]W[0-4])" "/W0")
-        else()
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W0")
-        endif()
-    endif()
-endmacro()
-
-configure_msvc_runtime()
-
-add_subdirectory(third-party)
-add_subdirectory(api)
-add_subdirectory(lib)
-add_subdirectory(net)
-if(DBSQL)
-  add_subdirectory(dbsql)
-endif()
-add_subdirectory(p2p)
-add_subdirectory(csnode)
-add_subdirectory(cscrypto)
-add_subdirectory(csdb)
-add_subdirectory(solver)
-add_subdirectory(client)
-add_subdirectory(lmdbxx)
-
-if(NOT ${SKIP_SAMPLES})
-    add_subdirectory(samples)
-endif()
-
-if (${ENABLE_TESTS})
-    enable_testing()
-    add_subdirectory(benchmark)
-    add_subdirectory(tests)
-endif()
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/json/single_include)
+add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
