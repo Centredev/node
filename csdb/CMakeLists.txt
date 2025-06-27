@@ -30,6 +30,7 @@ add_library(${PROJECT_NAME} STATIC
   src/priv_crypto.hpp
   src/database.cpp
   src/database_berkeleydb.cpp
+  src/database_rocksdb.cpp
   src/user_field.cpp
   include/csdb/internal/shared_data.hpp
   include/csdb/internal/shared_data_ptr_implementation.hpp
@@ -49,6 +50,7 @@ add_library(${PROJECT_NAME} STATIC
   include/csdb/storage.hpp
   include/csdb/database.hpp
   include/csdb/database_berkeleydb.hpp
+  include/csdb/database_rocksdb.hpp
   include/csdb/user_field.hpp
   )
 
@@ -83,13 +85,16 @@ target_link_libraries(
   lib
 )
 
-# Add RocksDB support if available
+# Link RocksDB unconditionally since we're using it
+# Note: RocksDB creates target name "rocksdb" (ROCKSDB_STATIC_LIB without ARTIFACT_SUFFIX)
 if(TARGET rocksdb)
-  target_sources(${PROJECT_NAME} PRIVATE 
-    src/database_rocksdb.cpp
-    include/csdb/database_rocksdb.hpp)
   target_link_libraries(${PROJECT_NAME} rocksdb)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ROCKSDB_AVAILABLE)
+else()
+  # Also check for alternative target names that might be created
+  get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+  message(STATUS "Available targets: ${all_targets}")
+  message(FATAL_ERROR "RocksDB target 'rocksdb' not found. Available targets listed above.")
 endif()
 if (CSDB_PLATFORM_IS_BIG_ENDIAN)
   target_compile_definitions(${PROJECT_NAME} PUBLIC -DCSDB_PLATFORM_IS_BIG_ENDIAN)
