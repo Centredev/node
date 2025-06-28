@@ -1,6 +1,7 @@
 #include <peer.hpp>
 
 #include <fstream>
+#include <cstdlib>
 
 #include <net/transport.hpp>
 #include <csnode/configholder.hpp>
@@ -115,6 +116,17 @@ bool Peer::onInit(const char*) {
         &cs::ConfigHolder::instance(),
         &cs::ConfigHolder::onConfigChanged
     );
+    
+    // Set database type environment variable based on config
+    std::string dbType = config_.getDatabaseType();
+    if (!dbType.empty()) {
+#ifdef _WIN32
+        _putenv_s("CS_DATABASE_TYPE", dbType.c_str());
+#else
+        setenv("CS_DATABASE_TYPE", dbType.c_str(), 1);
+#endif
+        cslog() << "Database type set to: " << dbType;
+    }
 
     node_ = std::make_unique<Node>(*observer_);
     if (!node_->isGood()) {

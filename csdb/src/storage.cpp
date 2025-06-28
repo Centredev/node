@@ -4,6 +4,7 @@
 #include <cassert>
 #include <condition_variable>
 #include <cstdarg>
+#include <cstdlib>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -505,8 +506,31 @@ bool Storage::open(
         path = ::csdb::internal::app_data_path() + "/CREDITS";
     }
 
-    auto db{::std::make_shared<::csdb::DatabaseRocksDB>()};
-    db->open(path);
+    // Read database type from environment variable or use default
+    std::string dbType = "berkeleydb";  // default
+    const char* envDbType = std::getenv("CS_DATABASE_TYPE");
+    if (envDbType != nullptr) {
+        dbType = envDbType;
+    }
+
+    std::shared_ptr<Database> db;
+    if (dbType == "rocksdb") {
+        cslog() << "Storage: Using RocksDB";
+        auto rocksDb = ::std::make_shared<::csdb::DatabaseRocksDB>();
+        if (!rocksDb->open(path)) {
+            d->set_last_error(DatabaseError, "Failed to open RocksDB");
+            return false;
+        }
+        db = rocksDb;
+    } else {
+        cslog() << "Storage: Using BerkeleyDB";
+        auto berkeleyDb = ::std::make_shared<::csdb::DatabaseBerkeleyDB>();
+        if (!berkeleyDb->open(path)) {
+            d->set_last_error(DatabaseError, "Failed to open BerkeleyDB");
+            return false;
+        }
+        db = berkeleyDb;
+    }
 
     //d->write_thread = std::thread(&Storage::priv::write_routine, d.get());
 

@@ -797,6 +797,9 @@ Config Config::readFromFile(const std::string& fileName) {
         }
 
         result.maxUncorrectedBlock_ = params.count(PARAM_NAME_MAX_UNCORRECTED_BLOCK) ? params.get<uint64_t>(PARAM_NAME_MAX_UNCORRECTED_BLOCK) : DEFAULT_MAX_UNCORRECTED_BLOCK;
+        
+        // Database type configuration
+        result.databaseType_ = params.count("database_type") ? params.get<std::string>("database_type") : "berkeleydb";
         result.generateFork_ = params.count(PARAM_NAME_GENERATE_FORK) ? params.get<bool>(PARAM_NAME_GENERATE_FORK) : false;
 
         if (params.count(PARAM_NAME_SYNC_ON)) {

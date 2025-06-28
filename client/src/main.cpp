@@ -15,6 +15,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <csdb/storage.hpp>
+#include <csdb/pool.hpp>
+#include <csdb/database_berkeleydb.hpp>
+#include <csdb/database_rocksdb.hpp>
+
 // diagnostic output
 #if defined(_MSC_VER)
 #if defined(MONITOR_NODE)
@@ -56,6 +61,7 @@ int main(int argc, char* argv[]) {
         ("disable-auto-shutdown", "node will be prohibited to shutdown in case of fatal errors")
         ("version", "show node version")
         ("db-path", po::value<std::string>(), "path to DB (default: \"db/\")")
+        ("dbmigrate", "migrate database from BerkeleyDB to RocksDB")
         ("config-file", po::value<std::string>(), "path to configuration file (default: \"config.ini\")")
         ("public-key-file", po::value<std::string>(), "path to public key file (default: \"NodePublic.txt\")")
         ("private-key-file", po::value<std::string>(), "path to private key file (default: \"NodePrivate.txt\")")
@@ -181,6 +187,130 @@ int main(int argc, char* argv[]) {
 
     if (!config.isGood()) {
         panic();
+    }
+    
+    // Handle database migration command
+    if (vm.count("dbmigrate") > 0) {
+        cslog() << "Starting database migration from BerkeleyDB to RocksDB...";
+        
+        std::string dbPath = config.getPathToDB();
+        if (dbPath.empty()) {
+            dbPath = "db";
+        }
+        
+        // Rename existing db directory to db_berkeley
+        std::string berkeleyPath = dbPath + "_berkeley";
+        std::string rocksdbPath = dbPath;
+        
+        try {
+            if (std::filesystem::exists(dbPath)) {
+                cslog() << "Renaming " << dbPath << " to " << berkeleyPath;
+                std::filesystem::rename(dbPath, berkeleyPath);
+            } else {
+                cserror() << "Database directory " << dbPath << " does not exist!";
+                return EXIT_FAILURE;
+            }
+            
+            std::cout << "\n=== DATABASE MIGRATION ===\n\n";
+            std::cout << "Starting migration from BerkeleyDB to RocksDB...\n";
+            std::cout << "This process will:\n";
+            std::cout << "1. Load your BerkeleyDB blockchain\n";
+            std::cout << "2. Copy each block to a new RocksDB as it loads\n";
+            std::cout << "3. Show progress every 1000 blocks\n\n";
+            
+            cslog() << "Opening source BerkeleyDB storage...";
+            
+            // Force BerkeleyDB for source
+#ifdef _WIN32
+            _putenv_s("CS_DATABASE_TYPE", "berkeleydb");
+#else
+            setenv("CS_DATABASE_TYPE", "berkeleydb", 1);
+#endif
+            
+            csdb::Storage sourceStorage;
+            
+            // Progress tracking for migration
+            size_t blocksProcessed = 0;
+            size_t totalBlocks = 0;
+            bool migrationComplete = false;
+            
+            // Custom callback to track progress and perform migration
+            csdb::Storage::OpenCallback migrationCallback = [&](const csdb::Storage::OpenProgress& progress) {
+                blocksProcessed = progress.poolsProcessed;
+                
+                if (blocksProcessed % 1000 == 0 && blocksProcessed > 0) {
+                    std::cout << "\rLoaded " << blocksProcessed << " blocks..." << std::flush;
+                }
+                
+                return false; // Don't cancel
+            };
+            
+            if (!sourceStorage.open(berkeleyPath, migrationCallback)) {
+                cserror() << "Failed to open source BerkeleyDB at " << berkeleyPath;
+                return EXIT_FAILURE;
+            }
+            
+            totalBlocks = sourceStorage.size();
+            std::cout << "\rSource database opened. Found " << totalBlocks << " blocks.\n";
+            
+            // Create destination directory
+            std::filesystem::create_directories(rocksdbPath);
+            
+            cslog() << "Creating destination RocksDB storage...";
+            
+            // Force RocksDB for destination
+#ifdef _WIN32
+            _putenv_s("CS_DATABASE_TYPE", "rocksdb");
+#else
+            setenv("CS_DATABASE_TYPE", "rocksdb", 1);
+#endif
+            
+            csdb::Storage destStorage;
+            if (!destStorage.open(rocksdbPath)) {
+                cserror() << "Failed to create destination RocksDB at " << rocksdbPath;
+                return EXIT_FAILURE;
+            }
+            
+            std::cout << "Destination storage created. Starting block-by-block migration...\n";
+            
+            // Perform the actual migration
+            size_t migratedCount = 0;
+            for (cs::Sequence seq = 0; seq < totalBlocks; ++seq) {
+                csdb::Pool pool = sourceStorage.pool_load(seq);
+                if (pool.is_valid()) {
+                    if (!destStorage.pool_save(pool)) {
+                        cserror() << "Failed to save block " << seq << " to RocksDB";
+                        return EXIT_FAILURE;
+                    }
+                    migratedCount++;
+                    
+                    if (migratedCount % 1000 == 0) {
+                        std::cout << "\rMigrated " << migratedCount << "/" << totalBlocks << " blocks..." << std::flush;
+                    }
+                } else {
+                    cswarning() << "Skipping invalid block at sequence " << seq;
+                }
+            }
+            
+            std::cout << "\rMigration completed! Migrated " << migratedCount << "/" << totalBlocks << " blocks.\n\n";
+            
+            cslog() << "Database migration completed successfully";
+            cslog() << "Migrated " << migratedCount << " blocks from BerkeleyDB to RocksDB";
+            cslog() << "Original BerkeleyDB data preserved in " << berkeleyPath;
+            
+            return EXIT_SUCCESS;
+        }
+        catch (const std::exception& e) {
+            cserror() << "Migration preparation failed: " << e.what();
+            
+            // Try to restore original state
+            if (std::filesystem::exists(berkeleyPath) && !std::filesystem::exists(dbPath)) {
+                cslog() << "Restoring original database directory...";
+                std::filesystem::rename(berkeleyPath, dbPath);
+            }
+            
+            return EXIT_FAILURE;
+        }
     }
 
     if (vm.count(cmdline::argSeed) == 0) {

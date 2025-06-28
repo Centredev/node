@@ -339,6 +339,10 @@ public:
         ;
     }
 
+    std::string getDatabaseType() const {
+        return databaseType_;
+    }
+
 
 private:
     static Config readFromFile(const std::string& fileName);
@@ -419,6 +423,8 @@ private:
 
     cs::PublicKey showBalanceChangeKey_;
     std::string showBalanceChangeAddress_;
+    
+    std::string databaseType_ = "berkeleydb";
 
     std::vector<std::pair<cs::RoundNumber, cs::RoundNumber>> stakingRoundRanges_;
 
